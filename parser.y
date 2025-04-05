@@ -21,7 +21,7 @@ void yyerror(const char *s);
 
 %token <fval> NUMBER
 %token <sval> ID
-%token LET SIN COS LOG SQRT
+%token VAR SIN COS LOG SQRT
 %left '+' '-'
 %left '*' '/'
 %right '^'
@@ -35,7 +35,7 @@ program:
     ;
 
 statement:
-    LET ID '=' expression ';'  {
+    VAR ID '=' expression ';'  {
         symbol_table[$2] = $4;
         cout << "Assigned: " << $2 << " = " << $4 << endl;
         free($2);

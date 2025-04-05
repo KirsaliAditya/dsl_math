@@ -10,7 +10,7 @@ using namespace std;
 %%
 
 "exit"          { exit(0); }
-"let"           { return LET; }
+"var"           { return VAR; }
 "sin"           { return SIN; }
 "cos"           { return COS; }
 "log"           { return LOG; }
