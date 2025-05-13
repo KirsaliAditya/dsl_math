@@ -1,20 +1,33 @@
 %{
+#include "ast.h"
 #include <cstdio>
-#include <cmath>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <iostream>
-#include <cstdlib>
+#include <memory>
 
 using namespace std;
 
-map<string, double> symbol_table;
+using SymbolTable = unordered_map<string, double>;
+SymbolTable symbol_table;
 
 int yylex();
 void yyerror(const char *s);
+
+ASTNodePtr root; // root of AST
 %}
 
+%define parse.error verbose
+
+%code requires {
+    #include "ast.h"
+    using ASTNode = ASTNode;
+    using ASTNodePtr = std::unique_ptr<ASTNode>;
+}
+
 %union {
+    ASTNode* node;
     double fval;
     char* sval;
 }
@@ -25,7 +38,7 @@ void yyerror(const char *s);
 %left '+' '-'
 %left '*' '/'
 %right '^'
-%type <fval> expression
+%type <node> expression statement
 
 %%
 
@@ -35,13 +48,24 @@ program:
     ;
 
 statement:
-    VAR ID '=' expression ';'  {
-        symbol_table[$2] = $4;
-        cout << "Assigned: " << $2 << " = " << $4 << endl;
+    VAR ID '=' expression ';' {
+        root = std::make_unique<AssignmentNode>($2, ASTNodePtr($4));
+        try {
+            double result = root->evaluate(symbol_table);
+            cout << "Assigned: " << $2 << " = " << result << endl;
+        } catch (exception& e) {
+            cerr << "Error: " << e.what() << endl;
+        }
         free($2);
     }
     | expression ';' {
-        cout << "Result: " << $1 << endl;
+        root = ASTNodePtr($1);
+        try {
+            double result = root->evaluate(symbol_table);
+            cout << "Result: " << result << endl;
+        } catch (exception& e) {
+            cerr << "Error: " << e.what() << endl;
+        }
     }
     | error ';' {
         yyerrok;
@@ -49,46 +73,20 @@ statement:
     ;
 
 expression:
-    NUMBER { $$ = $1; }
-    | ID    {
-        if (symbol_table.find($1) != symbol_table.end()) {
-            $$ = symbol_table[$1];
-        } else {
-            cerr << "Error: Undefined variable '" << $1 << "'" << endl;
-            $$ = 0;
-        }
+    NUMBER { $$ = new NumberNode($1); }
+    | ID {
+        $$ = new VariableNode($1);
         free($1);
     }
-    | expression '+' expression { $$ = $1 + $3; }
-    | expression '-' expression { $$ = $1 - $3; }
-    | expression '*' expression { $$ = $1 * $3; }
-    | expression '/' expression {
-        if ($3 == 0) {
-            cerr << "Error: Division by zero" << endl;
-            $$ = 0;
-        } else {
-            $$ = $1 / $3;
-        }
-    }
-    | expression '^' expression { $$ = pow($1, $3); }
-    | SIN '(' expression ')'    { $$ = sin($3); }
-    | COS '(' expression ')'    { $$ = cos($3); }
-    | LOG '(' expression ')'    {
-        if ($3 <= 0) {
-            cerr << "Error: Logarithm of non-positive number" << endl;
-            $$ = 0;
-        } else {
-            $$ = log($3);
-        }
-    }
-    | SQRT '(' expression ')'   {
-        if ($3 < 0) {
-            cerr << "Error: Square root of negative number" << endl;
-            $$ = 0;
-        } else {
-            $$ = sqrt($3);
-        }
-    }
+    | expression '+' expression { $$ = new BinaryOpNode('+', ASTNodePtr($1), ASTNodePtr($3)); }
+    | expression '-' expression { $$ = new BinaryOpNode('-', ASTNodePtr($1), ASTNodePtr($3)); }
+    | expression '*' expression { $$ = new BinaryOpNode('*', ASTNodePtr($1), ASTNodePtr($3)); }
+    | expression '/' expression { $$ = new BinaryOpNode('/', ASTNodePtr($1), ASTNodePtr($3)); }
+    | expression '^' expression { $$ = new BinaryOpNode('^', ASTNodePtr($1), ASTNodePtr($3)); }
+    | SIN '(' expression ')'    { $$ = new FunctionNode("sin", ASTNodePtr($3)); }
+    | COS '(' expression ')'    { $$ = new FunctionNode("cos", ASTNodePtr($3)); }
+    | LOG '(' expression ')'    { $$ = new FunctionNode("log", ASTNodePtr($3)); }
+    | SQRT '(' expression ')'   { $$ = new FunctionNode("sqrt", ASTNodePtr($3)); }
     | '(' expression ')'        { $$ = $2; }
     ;
 
