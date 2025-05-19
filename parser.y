@@ -14,6 +14,7 @@ extern int yylex();
 extern void yyerror(const char *s);
 std::unique_ptr<ASTNode> root;
 SymbolTable symbol_table;
+std::unordered_map<string, bool> declared_variables;
 
 // Only declare evaluateAST and solveEquation with void return (as per ast.h)
 double evaluateAST(ASTNode* node, SymbolTable& symbols);
@@ -39,8 +40,9 @@ std::unordered_map<std::string, double> solveEquation(ASTNode* eq, SymbolTable& 
 %token VAR SIN COS LOG SQRT
 %left '+' '-'
 %left '*' '/'
+%right UMINUS
 %right '^'
-%type <node> expression
+%type <node> expression equation
 
 %%
 
@@ -50,27 +52,51 @@ program:
   ;
 
 statement:
-    VAR ID '=' expression ';' {
-        double val = evaluateAST($4, symbol_table);
-        symbol_table[$2] = val;
-        cout << "Assigned: " << $2 << " = " << val << endl;
+    VAR ID ';' {
+        declared_variables[$2] = true;
+        symbol_table[$2] = 0.0;  // Initialize with 0
+        cout << "Declared variable: " << $2 << endl;
         free($2);
     }
-  | expression ';' {
-        auto* eqNode = dynamic_cast<EquationNode*>($1);
-        if (eqNode) {
-            try {
-                // Call solveEquation and print results from symbol_table
-                auto solutions = solveEquation($1, symbol_table);
-                cout << "Equation solved. Solutions:" << endl;
-                for (const auto& [var, val] : solutions)
-                    cout << "  " << var << " = " << val << endl;
-            } catch (const std::exception& e) {
-                cerr << "Error: " << e.what() << endl;
+  | VAR ID '=' expression ';' {
+        declared_variables[$2] = true;
+        double val = evaluateAST($4, symbol_table);
+        symbol_table[$2] = val;
+        cout << "Declared and initialized variable: " << $2 << " = " << val << endl;
+        free($2);
+    }
+  | equation ';' {
+        try {
+            // Check if all variables in the equation are declared
+            std::vector<std::string> vars;
+            $1->collectVariables(vars);
+            for (const auto& var : vars) {
+                if (!declared_variables[var]) {
+                    throw std::runtime_error("Variable '" + var + "' must be declared with 'var' before use");
+                }
             }
-        } else {
+            // Call solveEquation and print results from symbol_table
+            auto solutions = solveEquation($1, symbol_table);
+            if (solutions.empty()) {
+                cout << "No solutions found" << endl;
+            } else {
+                cout << "Equation solved. Solutions:" << endl;
+                for (const auto& [var, val] : solutions) {
+                    cout << "  " << var << " = " << val << endl;
+                    // Update the symbol table with the solution
+                    symbol_table[var] = val;
+                }
+            }
+        } catch (const std::exception& e) {
+            cerr << "Error: " << e.what() << endl;
+        }
+    }
+  | expression ';' {
+        try {
             double val = evaluateAST($1, symbol_table);
             cout << "Result: " << val << endl;
+        } catch (const std::exception& e) {
+            cerr << "Error: " << e.what() << endl;
         }
     }
   | error ';' {
@@ -79,9 +105,21 @@ statement:
     }
   ;
 
+equation:
+    expression '=' expression { $$ = new EquationNode(ASTNodePtr($1), ASTNodePtr($3)); }
+  ;
+
 expression:
     NUMBER          { $$ = new NumberNode($1); }
-  | ID              { $$ = new VariableNode($1); free($1); }
+  | ID { 
+        if (!declared_variables[$1]) {
+            yyerror(("Variable '" + std::string($1) + "' must be declared with 'var' before use").c_str());
+            YYERROR;
+        }
+        $$ = new VariableNode($1); 
+        free($1); 
+    }
+  | '-' expression %prec UMINUS { $$ = new BinaryOpNode('*', std::make_unique<NumberNode>(-1.0), ASTNodePtr($2)); }
   | expression '+' expression { $$ = new BinaryOpNode('+', ASTNodePtr($1), ASTNodePtr($3)); }
   | expression '-' expression { $$ = new BinaryOpNode('-', ASTNodePtr($1), ASTNodePtr($3)); }
   | expression '*' expression { $$ = new BinaryOpNode('*', ASTNodePtr($1), ASTNodePtr($3)); }
@@ -92,8 +130,8 @@ expression:
   | LOG '(' expression ')' { $$ = new FunctionNode("log", ASTNodePtr($3)); }
   | SQRT '(' expression ')' { $$ = new FunctionNode("sqrt", ASTNodePtr($3)); }
   | '(' expression ')' { $$ = $2; }
-  | expression '=' expression { $$ = new EquationNode(ASTNodePtr($1), ASTNodePtr($3)); }
   ;
+
 %%
 
 void yyerror(const char *s) {

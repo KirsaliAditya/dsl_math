@@ -123,7 +123,7 @@ public:
 // Solve linear equations given an EquationNode
 std::unordered_map<std::string, double> solveLinearEquation(const EquationNode* equation);
 
-// Solve any equation (linear or non-linear)
+// Solve any equation
 std::unordered_map<std::string, double> solveEquation(ASTNode* node, std::unordered_map<std::string, double>& vars);
 
 // Evaluate any ASTNode with given variable values

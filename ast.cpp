@@ -1,15 +1,11 @@
 #include "ast.h"
-#include <cmath>
 #include <stdexcept>
-#include <iostream>
-#include <algorithm>
+#include <set>
 
-// VariableNode
-
+// VariableNode implementation
 double VariableNode::evaluate(const std::unordered_map<std::string, double>& vars) const {
     auto it = vars.find(name);
-    if (it == vars.end())
-        throw std::runtime_error("Undefined variable: " + name);
+    if (it == vars.end()) throw std::runtime_error("Variable not defined: " + name);
     return it->second;
 }
 
@@ -17,22 +13,23 @@ void VariableNode::collectVariables(std::vector<std::string>& vars) const {
     vars.push_back(name);
 }
 
-// BinaryOpNode
+std::unique_ptr<ASTNode> VariableNode::derivative(const std::string& var) const {
+    return std::make_unique<NumberNode>(name == var ? 1.0 : 0.0);
+}
 
+// BinaryOpNode implementation
 BinaryOpNode::BinaryOpNode(char o, std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r)
     : op(o), left(std::move(l)), right(std::move(r)) {}
 
 double BinaryOpNode::evaluate(const std::unordered_map<std::string, double>& vars) const {
-    double lval = left->evaluate(vars);
-    double rval = right->evaluate(vars);
+    double l = left->evaluate(vars);
+    double r = right->evaluate(vars);
     switch (op) {
-        case '+': return lval + rval;
-        case '-': return lval - rval;
-        case '*': return lval * rval;
-        case '/': 
-            if (rval == 0) throw std::runtime_error("Division by zero");
-            return lval / rval;
-        case '^': return std::pow(lval, rval);
+        case '+': return l + r;
+        case '-': return l - r;
+        case '*': return l * r;
+        case '/': return r != 0 ? l / r : throw std::runtime_error("Division by zero");
+        case '^': return std::pow(l, r);
         default: throw std::runtime_error("Unknown binary operator");
     }
 }
@@ -42,8 +39,40 @@ void BinaryOpNode::collectVariables(std::vector<std::string>& vars) const {
     right->collectVariables(vars);
 }
 
-// FunctionNode
+std::unique_ptr<ASTNode> BinaryOpNode::derivative(const std::string& var) const {
+    if (op == '+') return std::make_unique<BinaryOpNode>('+', left->derivative(var), right->derivative(var));
+    if (op == '-') return std::make_unique<BinaryOpNode>('-', left->derivative(var), right->derivative(var));
+    if (op == '*') {
+        return std::make_unique<BinaryOpNode>('+',
+            std::make_unique<BinaryOpNode>('*', left->derivative(var), right->clone()),
+            std::make_unique<BinaryOpNode>('*', left->clone(), right->derivative(var))
+        );
+    }
+    if (op == '/') {
+        return std::make_unique<BinaryOpNode>('/',
+            std::make_unique<BinaryOpNode>('-',
+                std::make_unique<BinaryOpNode>('*', left->derivative(var), right->clone()),
+                std::make_unique<BinaryOpNode>('*', left->clone(), right->derivative(var))
+            ),
+            std::make_unique<BinaryOpNode>('*', right->clone(), right->clone())
+        );
+    }
+    if (op == '^') {
+        return std::make_unique<BinaryOpNode>('*',
+            std::make_unique<BinaryOpNode>('*',
+                std::make_unique<BinaryOpNode>('^', left->clone(), right->clone()),
+                right->clone()
+            ),
+            std::make_unique<BinaryOpNode>('/',
+                left->derivative(var),
+                left->clone()
+            )
+        );
+    }
+    throw std::runtime_error("Unsupported operation for derivative");
+}
 
+// FunctionNode implementation
 FunctionNode::FunctionNode(const std::string& f, std::unique_ptr<ASTNode> a)
     : funcName(f), arg(std::move(a)) {}
 
@@ -51,14 +80,8 @@ double FunctionNode::evaluate(const std::unordered_map<std::string, double>& var
     double val = arg->evaluate(vars);
     if (funcName == "sin") return std::sin(val);
     if (funcName == "cos") return std::cos(val);
-    if (funcName == "log") {
-        if (val <= 0) throw std::runtime_error("Log domain error");
-        return std::log(val);
-    }
-    if (funcName == "sqrt") {
-        if (val < 0) throw std::runtime_error("Sqrt domain error");
-        return std::sqrt(val);
-    }
+    if (funcName == "log") return std::log(val);
+    if (funcName == "sqrt") return std::sqrt(val);
     throw std::runtime_error("Unknown function: " + funcName);
 }
 
@@ -66,8 +89,41 @@ void FunctionNode::collectVariables(std::vector<std::string>& vars) const {
     arg->collectVariables(vars);
 }
 
-// EquationNode
+std::unique_ptr<ASTNode> FunctionNode::derivative(const std::string& var) const {
+    if (funcName == "sin") {
+        return std::make_unique<BinaryOpNode>('*',
+            std::make_unique<FunctionNode>("cos", arg->clone()),
+            arg->derivative(var)
+        );
+    }
+    if (funcName == "cos") {
+        return std::make_unique<BinaryOpNode>('*',
+            std::make_unique<NumberNode>(-1.0),
+            std::make_unique<BinaryOpNode>('*',
+                std::make_unique<FunctionNode>("sin", arg->clone()),
+                arg->derivative(var)
+            )
+        );
+    }
+    if (funcName == "log") {
+        return std::make_unique<BinaryOpNode>('/',
+            arg->derivative(var),
+            arg->clone()
+        );
+    }
+    if (funcName == "sqrt") {
+        return std::make_unique<BinaryOpNode>('/',
+            arg->derivative(var),
+            std::make_unique<BinaryOpNode>('*',
+                std::make_unique<NumberNode>(2.0),
+                std::make_unique<FunctionNode>("sqrt", arg->clone())
+            )
+        );
+    }
+    throw std::runtime_error("Derivative not implemented for function: " + funcName);
+}
 
+// EquationNode implementation
 EquationNode::EquationNode(std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r)
     : lhs(std::move(l)), rhs(std::move(r)) {}
 
@@ -76,304 +132,240 @@ void EquationNode::collectVariables(std::vector<std::string>& vars) const {
     rhs->collectVariables(vars);
 }
 
-// --- Linear equation solving helper ---
-
-using TermMap = std::map<std::string, double>;
-
-struct LinearExpr {
-    TermMap terms; // variable -> coefficient
-    double constant = 0;
-};
-
-// Recursively extract linear terms from an AST node
-LinearExpr extractLinearExpr(const ASTNode* node) {
-    if (auto num = dynamic_cast<const NumberNode*>(node)) {
-        return LinearExpr{{}, num->value};
-    }
-    if (auto var = dynamic_cast<const VariableNode*>(node)) {
-        return LinearExpr{{ {var->getName(), 1.0} }, 0.0};
-    }
-    if (auto bin = dynamic_cast<const BinaryOpNode*>(node)) {
-        LinearExpr left = extractLinearExpr(bin->left.get());
-        LinearExpr right = extractLinearExpr(bin->right.get());
-        switch (bin->op) {
-            case '+':
-                for (auto& [k,v] : right.terms) left.terms[k] += v;
-                left.constant += right.constant;
-                return left;
-            case '-':
-                for (auto& [k,v] : right.terms) left.terms[k] -= v;
-                left.constant -= right.constant;
-                return left;
-            case '*':
-                if (left.terms.empty()) {
-                    for(auto& [k,v] : right.terms) right.terms[k] *= left.constant;
-                    right.constant *= left.constant;
-                    return right;
-                }
-                if (right.terms.empty()) {
-                    for(auto& [k,v] : left.terms) left.terms[k] *= right.constant;
-                    left.constant *= right.constant;
-                    return left;
-                }
-                throw std::runtime_error("Non-linear multiplication detected");
-            case '/':
-                if (!right.terms.empty())
-                    throw std::runtime_error("Non-linear division detected");
-                if (right.constant == 0)
-                    throw std::runtime_error("Division by zero");
-                for(auto& [k,v] : left.terms) left.terms[k] /= right.constant;
-                left.constant /= right.constant;
-                return left;
-            default:
-                throw std::runtime_error("Unsupported operator in linear solver");
-        }
-    }
-    if (dynamic_cast<const FunctionNode*>(node)) {
-        throw std::runtime_error("Non-linear function in linear solver");
-    }
-    throw std::runtime_error("Unsupported AST node in linear solver");
-}
-
-// Solve a linear equation: lhs = rhs
-std::unordered_map<std::string, double> solveLinearEquation(const EquationNode* equation) {
-    LinearExpr lhsExpr = extractLinearExpr(equation->lhs.get());
-    LinearExpr rhsExpr = extractLinearExpr(equation->rhs.get());
-
-    // lhs - rhs = 0
-    for (auto& [k,v] : rhsExpr.terms) lhsExpr.terms[k] -= v;
-    lhsExpr.constant -= rhsExpr.constant;
-
-    if (lhsExpr.terms.empty())
-        throw std::runtime_error("No variables to solve for");
-
-    if (lhsExpr.terms.size() == 1) {
-        auto [var, coeff] = *lhsExpr.terms.begin();
-        if (coeff == 0)
-            throw std::runtime_error("Coefficient zero, no solution");
-        double val = -lhsExpr.constant / coeff;
-        return { {var, val} };
-    }
-
-    throw std::runtime_error("Multiple variables not supported yet");
-}
-
-// --- Free functions ---
-
-double evaluateAST(ASTNode* node, std::unordered_map<std::string, double>& vars) {
-    if (!node) throw std::runtime_error("Null ASTNode");
-    return node->evaluate(vars);
-}
-
-std::unordered_map<std::string, double> solveEquation(ASTNode* node, std::unordered_map<std::string, double>& vars) {
-    auto eq = dynamic_cast<EquationNode*>(node);
-    if (!eq) throw std::runtime_error("Node is not an equation");
-    
-    try {
-        // First try linear solver
-        return solveLinearEquation(eq);
-    } catch (const std::runtime_error&) {
-        // If linear solver fails, use numerical methods
-        std::vector<std::string> variables;
-        eq->collectVariables(variables);
-        
-        if (variables.size() != 1) {
-            throw std::runtime_error("Can only solve single-variable equations numerically");
-        }
-        
-        const std::string& var = variables[0];
-        
-        // Create function for f(x) = 0
-        auto f = [eq, &vars, &var](double x) {
-            vars[var] = x;
-            return eq->lhs->evaluate(vars) - eq->rhs->evaluate(vars);
-        };
-        
-        // Create function for f'(x)
-        auto df = [eq, &vars, &var](double x) {
-            vars[var] = x;
-            auto derivative = eq->derivative(var);
-            return derivative->evaluate(vars);
-        };
-        
-        // Try to find all roots
-        std::vector<double> roots = NumericalSolver::findAllRoots(f, -10.0, 10.0);
-        
-        if (roots.empty()) {
-            throw std::runtime_error("No roots found in the search interval");
-        }
-        
-        // Return the first root found
-        return {{var, roots[0]}};
-    }
-}
-
-// Derivative implementations
-std::unique_ptr<ASTNode> VariableNode::derivative(const std::string& var) const {
-    if (name == var) {
-        return std::make_unique<NumberNode>(1.0);
-    }
-    return std::make_unique<NumberNode>(0.0);
-}
-
-std::unique_ptr<ASTNode> BinaryOpNode::derivative(const std::string& var) const {
-    auto dleft = left->derivative(var);
-    auto dright = right->derivative(var);
-    
-    switch (op) {
-        case '+':
-            return std::make_unique<BinaryOpNode>('+', std::move(dleft), std::move(dright));
-        case '-':
-            return std::make_unique<BinaryOpNode>('-', std::move(dleft), std::move(dright));
-        case '*': {
-            // Product rule: (f*g)' = f'*g + f*g'
-            auto term1 = std::make_unique<BinaryOpNode>('*', std::move(dleft), right->clone());
-            auto term2 = std::make_unique<BinaryOpNode>('*', left->clone(), std::move(dright));
-            return std::make_unique<BinaryOpNode>('+', std::move(term1), std::move(term2));
-        }
-        case '/': {
-            // Quotient rule: (f/g)' = (f'*g - f*g')/g^2
-            auto numerator1 = std::make_unique<BinaryOpNode>('*', std::move(dleft), right->clone());
-            auto numerator2 = std::make_unique<BinaryOpNode>('*', left->clone(), std::move(dright));
-            auto numerator = std::make_unique<BinaryOpNode>('-', std::move(numerator1), std::move(numerator2));
-            auto denominator = std::make_unique<BinaryOpNode>('^', right->clone(), std::make_unique<NumberNode>(2.0));
-            return std::make_unique<BinaryOpNode>('/', std::move(numerator), std::move(denominator));
-        }
-        case '^': {
-            // Power rule: (x^n)' = n*x^(n-1)
-            if (auto* num = dynamic_cast<NumberNode*>(right.get())) {
-                auto newPower = std::make_unique<NumberNode>(num->value - 1);
-                auto powerTerm = std::make_unique<BinaryOpNode>('^', left->clone(), std::move(newPower));
-                return std::make_unique<BinaryOpNode>('*', 
-                    std::make_unique<NumberNode>(num->value),
-                    std::move(powerTerm));
-            }
-            throw std::runtime_error("Power rule only implemented for constant exponents");
-        }
-        default:
-            throw std::runtime_error("Unknown operator in derivative");
-    }
-}
-
-std::unique_ptr<ASTNode> FunctionNode::derivative(const std::string& var) const {
-    auto darg = arg->derivative(var);
-    
-    if (funcName == "sin") {
-        auto cosTerm = std::make_unique<FunctionNode>("cos", arg->clone());
-        return std::make_unique<BinaryOpNode>('*', std::move(darg), std::move(cosTerm));
-    }
-    if (funcName == "cos") {
-        auto sinTerm = std::make_unique<FunctionNode>("sin", arg->clone());
-        auto negSin = std::make_unique<BinaryOpNode>('*', std::make_unique<NumberNode>(-1.0), std::move(sinTerm));
-        return std::make_unique<BinaryOpNode>('*', std::move(darg), std::move(negSin));
-    }
-    if (funcName == "log") {
-        return std::make_unique<BinaryOpNode>('/', std::move(darg), arg->clone());
-    }
-    if (funcName == "sqrt") {
-        auto sqrtTerm = std::make_unique<FunctionNode>("sqrt", arg->clone());
-        return std::make_unique<BinaryOpNode>('/', 
-            std::move(darg),
-            std::make_unique<BinaryOpNode>('*', 
-                std::make_unique<NumberNode>(2.0),
-                std::move(sqrtTerm)));
-    }
-    throw std::runtime_error("Unknown function in derivative");
-}
-
 std::unique_ptr<ASTNode> EquationNode::derivative(const std::string& var) const {
-    auto dlhs = lhs->derivative(var);
-    auto drhs = rhs->derivative(var);
-    return std::make_unique<EquationNode>(std::move(dlhs), std::move(drhs));
+    return std::make_unique<EquationNode>(lhs->derivative(var), rhs->derivative(var));
 }
 
-// Numerical solver implementations
+// Solver implementations
 double NumericalSolver::solveNewtonRaphson(
     const std::function<double(double)>& f,
     const std::function<double(double)>& df,
-    double initial_guess,
-    double tolerance) {
-    
-    double x = initial_guess;
+    double guess,
+    double tol
+) {
     for (int i = 0; i < MAX_ITERATIONS; ++i) {
-        double fx = f(x);
-        if (std::abs(fx) < tolerance) {
-            return x;
-        }
-        double dfx = df(x);
-        if (std::abs(dfx) < tolerance) {
-            throw std::runtime_error("Derivative too close to zero");
-        }
-        double dx = fx / dfx;
-        x -= dx;
-        if (std::abs(dx) < tolerance) {
-            return x;
-        }
+        double fval = f(guess);
+        double dfval = df(guess);
+        if (std::abs(dfval) < EPSILON) throw std::runtime_error("Derivative near zero");
+        double next = guess - fval / dfval;
+        if (std::abs(next - guess) < tol) return next;
+        guess = next;
     }
-    throw std::runtime_error("Newton-Raphson method did not converge");
+    throw std::runtime_error("Newton-Raphson did not converge");
 }
 
 double NumericalSolver::solveBisection(
     const std::function<double(double)>& f,
     double a,
     double b,
-    double tolerance) {
-    
-    double fa = f(a);
-    double fb = f(b);
-    
-    if (fa * fb > 0) {
-        throw std::runtime_error("Function values at endpoints must have opposite signs");
-    }
-    
-    while (b - a > tolerance) {
-        double c = (a + b) / 2;
-        double fc = f(c);
-        
-        if (std::abs(fc) < tolerance) {
-            return c;
-        }
-        
-        if (fa * fc < 0) {
-            b = c;
-            fb = fc;
+    double tol
+) {
+    double fa = f(a), fb = f(b);
+    if (fa * fb >= 0) throw std::runtime_error("Bisection method requires opposite signs");
+
+    while ((b - a) / 2.0 > tol) {
+        double mid = (a + b) / 2.0;
+        double fmid = f(mid);
+        if (fmid == 0) return mid;
+        else if (fa * fmid < 0) {
+            b = mid;
+            fb = fmid;
         } else {
-            a = c;
-            fa = fc;
+            a = mid;
+            fa = fmid;
         }
     }
-    
-    return (a + b) / 2;
+    return (a + b) / 2.0;
 }
 
 std::vector<double> NumericalSolver::findAllRoots(
     const std::function<double(double)>& f,
     double start,
     double end,
-    double step) {
-    
+    double step
+) {
     std::vector<double> roots;
-    double x = start;
-    double prev_fx = f(x);
-    
-    while (x < end) {
-        x += step;
-        double fx = f(x);
-        
-        if (prev_fx * fx <= 0) {
-            try {
-                double root = solveBisection(f, x - step, x);
-                if (std::find_if(roots.begin(), roots.end(),
-                    [root](double r) { return std::abs(r - root) < EPSILON; }) == roots.end()) {
-                    roots.push_back(root);
+    for (double x = start; x < end; x += step) {
+        double x1 = x, x2 = x + step;
+        try {
+            double y1 = f(x1), y2 = f(x2);
+            if (y1 * y2 <= 0) {
+                double root = solveBisection(f, x1, x2);
+                roots.push_back(root);
+            }
+        } catch (...) {
+            continue;
+        }
+    }
+    return roots;
+}
+
+// Evaluate AST
+double evaluateAST(ASTNode* node, std::unordered_map<std::string, double>& vars) {
+    return node->evaluate(vars);
+}
+
+// Solve linear equations
+std::unordered_map<std::string, double> solveLinearEquation(const EquationNode* eq) {
+    std::vector<std::string> vars;
+    eq->collectVariables(vars);
+    std::set<std::string> unique(vars.begin(), vars.end());
+    if (unique.size() != 1) throw std::runtime_error("Only one variable supported for linear solver");
+
+    std::string var = *unique.begin();
+    auto derivativeNode = std::make_unique<BinaryOpNode>('-',
+        eq->lhs->clone(), eq->rhs->clone()
+    );
+
+    auto dNode = derivativeNode->derivative(var);
+    std::function<double(double)> f = [&](double x) {
+        std::unordered_map<std::string, double> vmap = {{var, x}};
+        return derivativeNode->evaluate(vmap);
+    };
+    std::function<double(double)> df = [&](double x) {
+        std::unordered_map<std::string, double> vmap = {{var, x}};
+        return dNode->evaluate(vmap);
+    };
+
+    double root = NumericalSolver::solveNewtonRaphson(f, df, 1.0);
+    return {{var, root}};
+}
+
+// Helper function to check if an expression is a power expression
+bool isPowerExpression(const ASTNode* node, const std::string& var) {
+    if (auto* binOp = dynamic_cast<const BinaryOpNode*>(node)) {
+        if (binOp->op == '^') {
+            // Check if right side is a number
+            if (auto* rightNum = dynamic_cast<const NumberNode*>(binOp->right.get())) {
+                // Check if left side is the variable we're solving for
+                if (auto* leftVar = dynamic_cast<const VariableNode*>(binOp->left.get())) {
+                    return leftVar->name == var;
                 }
-            } catch (const std::exception&) {
-                // Skip if bisection fails
             }
         }
-        
-        prev_fx = fx;
+    }
+    return false;
+}
+
+// Helper function to get the power from a power expression
+double getPowerFromExpression(const ASTNode* node) {
+    if (auto* binOp = dynamic_cast<const BinaryOpNode*>(node)) {
+        if (binOp->op == '^') {
+            if (auto* rightNum = dynamic_cast<const NumberNode*>(binOp->right.get())) {
+                return rightNum->value;
+            }
+        }
+    }
+    return 0.0;
+}
+
+// Helper function to get the base from a power expression
+double getBaseFromExpression(const ASTNode* node) {
+    if (auto* binOp = dynamic_cast<const BinaryOpNode*>(node)) {
+        if (binOp->op == '^') {
+            if (auto* leftNum = dynamic_cast<const NumberNode*>(binOp->left.get())) {
+                return leftNum->value;
+            }
+        }
+    }
+    return 0.0;
+}
+
+// General equation solver
+std::unordered_map<std::string, double> solveEquation(ASTNode* node, std::unordered_map<std::string, double>& vars) {
+    EquationNode* eq = dynamic_cast<EquationNode*>(node);
+    if (!eq) throw std::runtime_error("Not an equation node");
+
+    // Collect variables
+    std::vector<std::string> variables;
+    eq->collectVariables(variables);
+    std::set<std::string> unique_vars(variables.begin(), variables.end());
+    
+    if (unique_vars.size() != 1) {
+        throw std::runtime_error("Can only solve single-variable equations numerically");
     }
     
-    return roots;
+    std::string var = *unique_vars.begin();
+
+    // Check if it's a power equation (x^n = c)
+    bool isPowerEq = false;
+    double power = 0.0;
+    double constant = 0.0;
+
+    // Check if left side is a power expression
+    if (isPowerExpression(eq->lhs.get(), var)) {
+        power = getPowerFromExpression(eq->lhs.get());
+        if (auto* rightNum = dynamic_cast<const NumberNode*>(eq->rhs.get())) {
+            constant = rightNum->value;
+            isPowerEq = true;
+        }
+    }
+    // Check if right side is a power expression
+    else if (isPowerExpression(eq->rhs.get(), var)) {
+        power = getPowerFromExpression(eq->rhs.get());
+        if (auto* leftNum = dynamic_cast<const NumberNode*>(eq->lhs.get())) {
+            constant = leftNum->value;
+            isPowerEq = true;
+        }
+    }
+
+    if (isPowerEq) {
+        std::unordered_map<std::string, double> solutions;
+        
+        // For even powers, we can have both positive and negative roots
+        if (static_cast<int>(power) % 2 == 0) {
+            double root = std::pow(constant, 1.0/power);
+            solutions[var] = root;
+            solutions[var + "_neg"] = -root;
+        }
+        // For odd powers, we only have one real root
+        else {
+            double root = std::pow(constant, 1.0/power);
+            solutions[var] = root;
+        }
+        return solutions;
+    }
+
+    // If not a power equation, try linear solver first
+    try {
+        return solveLinearEquation(eq);
+    } catch (const std::exception&) {
+        // If linear solver fails, use numerical methods
+        auto derivativeNode = std::make_unique<BinaryOpNode>('-',
+            eq->lhs->clone(), eq->rhs->clone()
+        );
+
+        std::function<double(double)> f = [&](double x) {
+            std::unordered_map<std::string, double> vmap = {{var, x}};
+            return derivativeNode->evaluate(vmap);
+        };
+
+        std::vector<double> roots;
+        try {
+            // Try Newton-Raphson with multiple starting points
+            for (double x0 : {-10.0, -5.0, -1.0, 0.0, 1.0, 5.0, 10.0}) {
+                try {
+                    auto dNode = derivativeNode->derivative(var);
+                    std::function<double(double)> df = [&](double x) {
+                        std::unordered_map<std::string, double> vmap = {{var, x}};
+                        return dNode->evaluate(vmap);
+                    };
+                    double root = NumericalSolver::solveNewtonRaphson(f, df, x0);
+                    roots.push_back(root);
+                } catch (...) {
+                    continue;
+                }
+            }
+        } catch (...) {
+            // If Newton-Raphson fails, try bisection
+            roots = NumericalSolver::findAllRoots(f, -10.0, 10.0, 0.1);
+        }
+
+        std::unordered_map<std::string, double> solutions;
+        for (size_t i = 0; i < roots.size(); ++i) {
+            std::string varName = i == 0 ? var : var + "_" + std::to_string(i);
+            solutions[varName] = roots[i];
+        }
+        return solutions;
+    }
 }
