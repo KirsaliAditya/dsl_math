@@ -1,6 +1,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <memory>
+#include <fstream>
 #include "ast.h"
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/IRBuilder.h>
@@ -10,6 +11,8 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/FileSystem.h>
 
 using namespace llvm;
 
@@ -63,6 +66,9 @@ double evaluateAST(ASTNode* node, std::unordered_map<std::string, double>& symbo
 
     Value *RetVal = emit(node);
     Builder.CreateRet(RetVal);
+    std::error_code EC;
+    raw_fd_ostream out("ir.ll", EC, sys::fs::OpenFlags::OF_None); // Use the correct enum
+    F->getParent()->print(out, nullptr);
     verifyFunction(*F);
 
     InitializeNativeTarget(); 
@@ -90,11 +96,21 @@ double evaluateAST(ASTNode* node, std::unordered_map<std::string, double>& symbo
     return result;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "Mathematical DSL Interpreter (type 'exit;' to quit)\n";
     InitializeNativeTarget(); 
     InitializeNativeTargetAsmPrinter(); 
     InitializeNativeTargetAsmParser();
+    std::ofstream("ast.txt", std::ios::trunc).close();
+    if (argc == 2) {
+    FILE* file = fopen(argv[1], "r");
+    if (!file) {
+        std::cerr << "Failed to open file: " << argv[1] << "\n";
+        return 1;
+    }
+    extern FILE* yyin;
+    yyin = file;
+}
     if (yyparse() != 0) {
         std::cerr << "Parsing failed.\n";
         return 1;

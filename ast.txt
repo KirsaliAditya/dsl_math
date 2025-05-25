@@ -1,0 +1,14 @@
+Assignment to x:
+BinaryOp(*)
+  Number(2)
+  Number(2)
+------------------------
+Assignment to y:
+BinaryOp(*)
+  Variable(x)
+  Number(2)
+------------------------
+Expression:
+Function(sin)
+  Number(45)
+------------------------
