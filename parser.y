@@ -2,6 +2,7 @@
 #include "ast.h"
 #include <iostream>
 #include <memory>
+#include <fstream>
 using namespace std;
 using SymbolTable = unordered_map<string, double>;
 extern int yylex();
@@ -46,11 +47,26 @@ statement:
         double val = evaluateAST($4, symbol_table);
         symbol_table[$2] = val;
         cout << "Assigned: " << $2 << " = " << val << endl;
+
+        // AST Dump
+        std::ofstream ast_out("ast.txt", std::ios::app);
+        ast_out << "Assignment to " << $2 << ":\n";
+        $4->print(ast_out);
+        ast_out << "------------------------\n";
+        ast_out.close();
+
         free($2);
     }
   | expression ';' {
         double val = evaluateAST($1, symbol_table);
         cout << "Result: " << val << endl;
+
+        // AST Dump
+        std::ofstream ast_out("ast.txt", std::ios::app);
+        ast_out << "Expression:\n";
+        $1->print(ast_out);
+        ast_out << "------------------------\n";
+        ast_out.close();
     }
   | error ';' {
         yyerror("Syntax error");
