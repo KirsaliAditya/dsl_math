@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <map>
 #include <vector>
+#include <fstream>
 
 using namespace std;
 using SymbolTable = unordered_map<string, double>;
@@ -58,16 +59,24 @@ statement:
         cout << "Declared variable: " << $2 << endl;
         free($2);
     }
-  | VAR ID '=' expression ';' {
+    | VAR ID '=' expression ';' {
         declared_variables[$2] = true;
         double val = evaluateAST($4, symbol_table);
+        root = std::make_unique<VariableNode>($2); // simulate root for printing
         symbol_table[$2] = val;
         cout << "Declared and initialized variable: " << $2 << " = " << val << endl;
+
+        std::ofstream out("ast.txt", std::ios::app);
+        if ($4) {
+            $4->print(out);
+            out << "------------------------\n";
+        }
+
         free($2);
     }
   | equation ';' {
+        root.reset($1);
         try {
-            // Check if all variables in the equation are declared
             std::vector<std::string> vars;
             $1->collectVariables(vars);
             for (const auto& var : vars) {
@@ -75,7 +84,7 @@ statement:
                     throw std::runtime_error("Variable '" + var + "' must be declared with 'var' before use");
                 }
             }
-            // Call solveEquation and print results from symbol_table
+
             auto solutions = solveEquation($1, symbol_table);
             if (solutions.empty()) {
                 cout << "No solutions found" << endl;
@@ -83,27 +92,33 @@ statement:
                 cout << "Equation solved. Solutions:" << endl;
                 for (const auto& [var, val] : solutions) {
                     cout << "  " << var << " = " << val << endl;
-                    // Update the symbol table with the solution
                     symbol_table[var] = val;
                 }
             }
+
+            std::ofstream out("ast.txt", std::ios::app);
+            root->print(out);
+            out << "------------------------\n";
+
         } catch (const std::exception& e) {
             cerr << "Error: " << e.what() << endl;
         }
     }
   | expression ';' {
+        root.reset($1);
         try {
             double val = evaluateAST($1, symbol_table);
             cout << "Result: " << val << endl;
+
+            std::ofstream out("ast.txt", std::ios::app);
+            root->print(out);
+            out << "------------------------\n";
+
         } catch (const std::exception& e) {
             cerr << "Error: " << e.what() << endl;
         }
     }
-  | error ';' {
-        yyerror("Syntax error");
-        yyerrok;
-    }
-  ;
+    ;
 
 equation:
     expression '=' expression { $$ = new EquationNode(ASTNodePtr($1), ASTNodePtr($3)); }

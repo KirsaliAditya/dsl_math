@@ -1,8 +1,29 @@
 #include "ast.h"
 #include <stdexcept>
 #include <set>
+#include <iostream>
 
-// VariableNode implementation
+BinaryOpNode::BinaryOpNode(char o, std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r)
+    : op(o), left(std::move(l)), right(std::move(r)) {}
+
+FunctionNode::FunctionNode(const std::string& f, std::unique_ptr<ASTNode> a)
+    : funcName(f), arg(std::move(a)) {}
+
+EquationNode::EquationNode(std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r)
+    : lhs(std::move(l)), rhs(std::move(r)) {}
+
+// --- NumberNode ---
+void NumberNode::print(std::ostream& out, int indent) const {
+    for (int i = 0; i < indent; ++i) out << "  ";
+    out << "Number(" << value << ")\n";
+}
+
+// --- VariableNode ---
+void VariableNode::print(std::ostream& out, int indent) const {
+    for (int i = 0; i < indent; ++i) out << "  ";
+    out << "Variable(" << name << ")\n";
+}
+
 double VariableNode::evaluate(const std::unordered_map<std::string, double>& vars) const {
     auto it = vars.find(name);
     if (it == vars.end()) throw std::runtime_error("Variable not defined: " + name);
@@ -17,9 +38,13 @@ std::unique_ptr<ASTNode> VariableNode::derivative(const std::string& var) const 
     return std::make_unique<NumberNode>(name == var ? 1.0 : 0.0);
 }
 
-// BinaryOpNode implementation
-BinaryOpNode::BinaryOpNode(char o, std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r)
-    : op(o), left(std::move(l)), right(std::move(r)) {}
+// --- BinaryOpNode ---
+void BinaryOpNode::print(std::ostream& out, int indentLvl) const {
+    for (int i = 0; i < indentLvl; ++i) out << "  ";
+    out << "BinaryOp(" << op << ")\n";
+    left->print(out, indentLvl + 1);
+    right->print(out, indentLvl + 1);
+}
 
 double BinaryOpNode::evaluate(const std::unordered_map<std::string, double>& vars) const {
     double l = left->evaluate(vars);
@@ -72,9 +97,12 @@ std::unique_ptr<ASTNode> BinaryOpNode::derivative(const std::string& var) const 
     throw std::runtime_error("Unsupported operation for derivative");
 }
 
-// FunctionNode implementation
-FunctionNode::FunctionNode(const std::string& f, std::unique_ptr<ASTNode> a)
-    : funcName(f), arg(std::move(a)) {}
+// --- FunctionNode ---
+void FunctionNode::print(std::ostream& out, int indentLvl) const {
+    for (int i = 0; i < indentLvl; ++i) out << "  ";
+    out << "Function(" << funcName << ")\n";
+    arg->print(out, indentLvl + 1);
+}
 
 double FunctionNode::evaluate(const std::unordered_map<std::string, double>& vars) const {
     double val = arg->evaluate(vars);
@@ -123,9 +151,13 @@ std::unique_ptr<ASTNode> FunctionNode::derivative(const std::string& var) const 
     throw std::runtime_error("Derivative not implemented for function: " + funcName);
 }
 
-// EquationNode implementation
-EquationNode::EquationNode(std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r)
-    : lhs(std::move(l)), rhs(std::move(r)) {}
+// --- EquationNode ---
+void EquationNode::print(std::ostream& out, int indentLvl) const {
+    for (int i = 0; i < indentLvl; ++i) out << "  ";
+    out << "Equation(=)\n";
+    lhs->print(out, indentLvl + 1);
+    rhs->print(out, indentLvl + 1);
+}
 
 void EquationNode::collectVariables(std::vector<std::string>& vars) const {
     lhs->collectVariables(vars);

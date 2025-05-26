@@ -3,6 +3,7 @@
 #include <memory>
 #include "ast.h"
 #include <unordered_map>
+#include <fstream>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -36,6 +37,16 @@ int main() {
         return 1;
     }
 
+    std::ofstream astOut("ast.txt", std::ios::app);
+    if (root) {
+        std::cout << "Writing AST to ast.txt\n"; // Debug line
+        root->print(astOut);
+        astOut << "------------------------\n";
+    } else {
+        std::cout << "No AST to write (root is null)\n"; // Debug line
+    }
+
+
     if (root) {
         try {
             double result = evaluateAST(root.get(), symbol_table);
@@ -44,6 +55,8 @@ int main() {
             std::cerr << "Evaluation error: " << ex.what() << std::endl;
         }
     }
+
+    
 
     return 0;
 }

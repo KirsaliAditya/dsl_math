@@ -24,6 +24,8 @@ struct ASTNode {
 
     // Clone the node
     virtual std::unique_ptr<ASTNode> clone() const = 0;
+
+    virtual void print(std::ostream& out, int indent = 0) const = 0;
 };
 
 // Number literal
@@ -32,6 +34,7 @@ struct NumberNode : ASTNode {
     NumberNode(double v) : value(v) {}
     double evaluate(const std::unordered_map<std::string, double>&) const override { return value; }
     void collectVariables(std::vector<std::string>&) const override {}
+    void print(std::ostream& out, int indent = 0) const override;
     std::unique_ptr<ASTNode> derivative(const std::string& var) const override { return std::make_unique<NumberNode>(0.0); }
     std::unique_ptr<ASTNode> clone() const override { return std::make_unique<NumberNode>(value); }
 };
@@ -45,6 +48,7 @@ struct VariableNode : ASTNode {
 
     double evaluate(const std::unordered_map<std::string, double>& vars) const override;
     void collectVariables(std::vector<std::string>& vars) const override;
+    void print(std::ostream& out, int indent = 0) const override;
     std::unique_ptr<ASTNode> derivative(const std::string& var) const override;
     std::unique_ptr<ASTNode> clone() const override { return std::make_unique<VariableNode>(name); }
 };
@@ -57,6 +61,7 @@ struct BinaryOpNode : ASTNode {
     BinaryOpNode(char o, std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r);
     double evaluate(const std::unordered_map<std::string, double>& vars) const override;
     void collectVariables(std::vector<std::string>& vars) const override;
+    void print(std::ostream& out, int indent = 0) const override;
     std::unique_ptr<ASTNode> derivative(const std::string& var) const override;
     std::unique_ptr<ASTNode> clone() const override {
         return std::make_unique<BinaryOpNode>(op, left->clone(), right->clone());
@@ -70,6 +75,7 @@ struct FunctionNode : ASTNode {
     FunctionNode(const std::string& f, std::unique_ptr<ASTNode> a);
     double evaluate(const std::unordered_map<std::string, double>& vars) const override;
     void collectVariables(std::vector<std::string>& vars) const override;
+    void print(std::ostream& out, int indent = 0) const override;
     std::unique_ptr<ASTNode> derivative(const std::string& var) const override;
     std::unique_ptr<ASTNode> clone() const override {
         return std::make_unique<FunctionNode>(funcName, arg->clone());
@@ -83,6 +89,7 @@ struct EquationNode : ASTNode {
     EquationNode(std::unique_ptr<ASTNode> l, std::unique_ptr<ASTNode> r);
     double evaluate(const std::unordered_map<std::string, double>&) const override { return 0; }
     void collectVariables(std::vector<std::string>& vars) const override;
+    void print(std::ostream& out, int indent = 0) const override;
     std::unique_ptr<ASTNode> derivative(const std::string& var) const override;
     std::unique_ptr<ASTNode> clone() const override {
         return std::make_unique<EquationNode>(lhs->clone(), rhs->clone());
