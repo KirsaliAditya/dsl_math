@@ -3,7 +3,7 @@
 # Files
 LEXER = scanner.l
 PARSER = parser.y
-AST_H = ast.h
+AST =AST_H = ast.h
 AST_CPP = ast.cpp
 MAIN = main.cpp
 
@@ -47,6 +47,6 @@ ast.o: $(AST_CPP) $(AST_H)
 	$(CXX) $(CXXFLAGS) $(LLVM_CFLAGS) -fexceptions -c $(AST_CPP)
 
 clean:
-	rm -f $(TARGET) $(OBJS) parser.tab.cpp parser.tab.hpp lexer.yy.cpp
+	rm -f $(TARGET) $(OBJS) parser.tab.cpp parser.tab.hpp lexer.y y.cpp
 
 .PHONY: all clean
